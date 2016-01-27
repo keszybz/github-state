@@ -1,14 +1,21 @@
 #!/usr/bin/python3
 
+from __future__ import print_function, division
+
 import requests
 import pandas as pd
+import matplotlib
+if __name__ == '__main__':
+    matplotlib.use('svg')
 from matplotlib import pyplot
 
 def get_entries(url, max_pages=20, **params):
     params['per_page'] = 100
     for page in range(1, max_pages + 1): # for safety
         params['page'] = str(page)
-        r = requests.get(url, params=params)
+        r = requests.get(url,
+                         params=params,
+                         auth=('user', 'DEADBEEF'))
         json = r.json()
         print('got {}, {} items'.format(url, len(json)))
         if not json:

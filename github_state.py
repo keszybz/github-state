@@ -131,7 +131,7 @@ if __name__ == '__main__':
 
     f = do_plot(other, 'Issues',
                 extra_labels={'needs-reporter-feedback'},
-                extra_label='needs-reporter-feedback')
+                extra_label='postponed')
     f2 = do_plot(pulls, 'Pull requests',
                  extra_labels={'postponed',
                                'reviewed/needs-rework',

@@ -129,7 +129,7 @@ def small_plot(issues, title=None, style=None):
     ax = diff.plot(style=style)
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.annotate(title, xy=(0, 1), xycoords='axes fraction', fontsize=20,
+    ax.annotate(title, xy=(0, 1), xycoords='axes fraction', fontsize=16,
                 horizontalalignment='left', verticalalignment='top')
     f.subplots_adjust(0, 0, 1, 1)
     return f

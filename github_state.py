@@ -27,7 +27,7 @@ if False:
 
 import matplotlib
 if __name__ == '__main__':
-    matplotlib.use('svg')
+    matplotlib.use('Agg')
 from matplotlib import pyplot
 matplotlib.style.use('ggplot')
 
@@ -123,6 +123,17 @@ def do_plot(issues, title=None, extra_labels=None, extra_label=None):
 
     return f
 
+def small_plot(issues, title=None, style=None):
+    opening, closing, diff = massage(issues)
+    f = pyplot.figure(figsize=(2,1))
+    ax = diff.plot(style=style)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.annotate(title, xy=(0, 1), xycoords='axes fraction', fontsize=20,
+                horizontalalignment='left', verticalalignment='top')
+    f.subplots_adjust(0, 0, 1, 1)
+    return f
+
 if __name__ == '__main__':
     issues = get_issues(group='issues')
     has_pr = -issues.pull_request.isnull()
@@ -137,5 +148,15 @@ if __name__ == '__main__':
                                'reviewed/needs-rework',
                                'needs-reporter-feedback'},
                  extra_label='postponed')
-    f.savefig('systemd-issues.svg')
-    f2.savefig('systemd-pull-requests.svg')
+    f.savefig('images/systemd-issues.svg')
+    f.savefig('images/systemd-issues.png')
+    f2.savefig('images/systemd-pull-requests.svg')
+    f2.savefig('images/systemd-pull-requests.png')
+
+    f3 = small_plot(other, title='Issues', style='red')
+    f4 = small_plot(pulls, title='Pull requests', style='green')
+
+    f3.savefig('images/systemd-issues-small.svg')
+    f3.savefig('images/systemd-issues-small.png')
+    f4.savefig('images/systemd-pull-requests-small.svg')
+    f4.savefig('images/systemd-pull-requests-small.png')

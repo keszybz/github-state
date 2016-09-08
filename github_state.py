@@ -8,6 +8,8 @@ import pandas as pd
 import logging
 import os.path
 import json
+import argparse
+import collections
 
 try:
     import http.client as http_client
@@ -15,8 +17,32 @@ except ImportError:
     # Python 2
     import httplib as http_client
 
+Auth = collections.namedtuple('Auth', 'user auth')
+def colon_seperated_pair(arg):
+    pair = arg.split(':', 1)
+    if len(pair) == 1:
+        return Auth(pair[0], '')
+    else:
+        return Auth(*pair)
+
+def comma_seperated_list(arg):
+    return arg.split(',')
+
+def parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--config', default='config.json')
+    parser.add_argument('--project')
+    parser.add_argument('--auth', type=colon_seperated_pair)
+    parser.add_argument('--cache-time', type=float, default=60*60)
+
+    parser.add_argument('--plot1-filter', type=comma_seperated_list)
+    parser.add_argument('--plot2-filter', type=comma_seperated_list)
+
+    return parser
+
 # You must initialize logging, otherwise you'll not see debug output.
-if False:
+def init_logging():
     http_client.HTTPConnection.debuglevel = 1
 
     logging.basicConfig()
@@ -31,13 +57,13 @@ if __name__ == '__main__':
 from matplotlib import pyplot
 matplotlib.style.use('ggplot')
 
-def get_entries(url, max_pages=100, **params):
+def get_entries(config, url, max_pages=100, **params):
     params['per_page'] = 100
     for page in range(1, max_pages + 1): # for safety
         params['page'] = str(page)
         r = requests.get(url,
                          params=params,
-                         auth=('user', 'DEADBEEF'))
+                         auth=config.auth)
         json = r.json()
         print('got {}, {} items'.format(url, len(json)))
         if not json:
@@ -45,30 +71,30 @@ def get_entries(url, max_pages=100, **params):
             break
         yield json
 
-def get_frames(url, **params):
-    entries = get_entries(url, **params)
+def get_frames(config, url, **params):
+    entries = get_entries(config, url, **params)
     total = sum(entries, [])
     return total
 
-def get_issues_json(project, group, cache_time):
-    fname = project.replace('/', '_') + '_' + group + '.json'
+def get_issues_json(config, group):
+    fname = config.project.replace('/', '_') + '_' + group + '.json'
     try:
         ts = os.path.getmtime(fname)
-        if ts + cache_time >= time.time():
+        if ts + config.cache_time >= time.time():
             f = open(fname)
             return json.load(f)
     except (IOError, ValueError):
         pass
 
-    url = 'https://api.github.com/repos/{}/{}'.format(project, group)
-    raw = get_frames(url, state='all')
+    url = 'https://api.github.com/repos/{}/{}'.format(config.project, group)
+    raw = get_frames(config, url, state='all')
     f = open(fname, 'w')
     json.dump(raw, f)
 
     return raw
 
-def get_issues(project='systemd/systemd', group='issues', cache_time=60*60):
-    raw = get_issues_json(project, group, cache_time)
+def get_issues(config, group='issues'):
+    raw = get_issues_json(config, group)
 
     df = pd.DataFrame(raw)
     df.set_index('number', inplace=True)
@@ -134,29 +160,35 @@ def small_plot(issues, title=None, style=None):
     f.subplots_adjust(0, 0, 1, 1)
     return f
 
+def image_file(config, subj, ext):
+    prefix = config.project.replace('/', '-')
+    return 'images/{}-{}.{}'.format(prefix, subj, ext)
+
 if __name__ == '__main__':
-    issues = get_issues(group='issues')
+    config = parser().parse_args()
+    if config.debug:
+        init_logging()
+
+    issues = get_issues(config, group='issues')
     has_pr = -issues.pull_request.isnull()
     pulls = issues[has_pr]
     other = issues[-has_pr]
 
     f = do_plot(other, 'Issues',
-                extra_labels={'needs-reporter-feedback'},
-                extra_label='postponed')
+                extra_labels=set(config.plot1_filter),
+                extra_label=config.plot1_filter[0])
     f2 = do_plot(pulls, 'Pull requests',
-                 extra_labels={'postponed',
-                               'reviewed/needs-rework',
-                               'needs-reporter-feedback'},
-                 extra_label='postponed')
-    f.savefig('images/systemd-issues.svg')
-    f.savefig('images/systemd-issues.png')
-    f2.savefig('images/systemd-pull-requests.svg')
-    f2.savefig('images/systemd-pull-requests.png')
+                 extra_labels=set(config.plot2_filter),
+                 extra_label=config.plot2_filter[0])
+    f.savefig(image_file(config, 'issues', 'svg'))
+    f.savefig(image_file(config, 'issues', 'png'))
+    f2.savefig(image_file(config, 'pull-requests', 'svg'))
+    f2.savefig(image_file(config, 'pull-requests', 'png'))
 
     f3 = small_plot(other, title='Issues', style='red')
     f4 = small_plot(pulls, title='Pull requests', style='green')
 
-    f3.savefig('images/systemd-issues-small.svg')
-    f3.savefig('images/systemd-issues-small.png')
-    f4.savefig('images/systemd-pull-requests-small.svg')
-    f4.savefig('images/systemd-pull-requests-small.png')
+    f3.savefig(image_file(config, 'issues-small', 'svg'))
+    f3.savefig(image_file(config, 'issues-small', 'png'))
+    f4.savefig(image_file(config, 'pull-requests-small', 'svg'))
+    f4.savefig(image_file(config, 'pull-requests-small', 'png'))

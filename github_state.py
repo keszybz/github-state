@@ -164,6 +164,10 @@ def small_plot(issues, title=None, style=None):
 
 def image_file(config, subj, ext):
     prefix = config.project.replace('/', '-')
+    try:
+        os.mkdir('images')
+    except FileExistsError:
+        pass
     return 'images/{}-{}.{}'.format(prefix, subj, ext)
 
 if __name__ == '__main__':

@@ -28,18 +28,61 @@ def colon_seperated_pair(arg):
 def comma_seperated_list(arg):
     return arg.split(',')
 
+class PlotConfig:
+    def __init__(self, string):
+        parts = string.split(':')
+        if len(parts) > 2:
+            raise ValueError('plot syntax is: [title:]issue[,issue...]')
+
+        if len(parts) > 1:
+            self.title = parts[0]
+            self.labels = comma_seperated_list(parts[1])
+        else:
+            self.labels = comma_seperated_list(parts[0])
+
+    @classmethod
+    def make(cls, default_title, *, pulls=False, small=False):
+        _pulls = pulls
+        _small = small
+        class TitledPlot(cls):
+            title = default_title
+            pulls = _pulls
+            small = _small
+        return TitledPlot
+
 def parser():
     parser = configargparse.ArgParser()
-    parser.add_argument('--project', required=True)
-    parser.add_argument('--auth', type=colon_seperated_pair, required=True)
-    parser.add_argument('--cache-time', type=float, default=60*60)
+    parser.add_argument('--project', required=True,
+                        help='GitHub project, specified as USER/REPO')
+    parser.add_argument('--auth', type=colon_seperated_pair, required=True,
+                        help='GitHub API token, specified as user/digits')
+    parser.add_argument('--cache-time', type=float, default=60*60,
+                        help='How often should the issue list be refreshed')
 
-    parser.add_argument('--plot1-filter', type=comma_seperated_list)
-    parser.add_argument('--plot2-filter', type=comma_seperated_list)
+    parser.add_argument('--issues', dest='plots', action='append',
+                        metavar='PLOT_CONFIG',
+                        type=PlotConfig.make('Issues'),
+                        help='Add a plot of open and closed issues')
+    parser.add_argument('--pull-requests', dest='plots', action='append',
+                        metavar='PLOT_CONFIG',
+                        type=PlotConfig.make('Pull requests', pulls=True),
+                        help='Add a plot of open and closed pull requests')
+    parser.add_argument('--issues-small', dest='plots', action='append',
+                        metavar='PLOT_CONFIG',
+                        type=PlotConfig.make('Issues', small=True),
+                        help='Add a thumbnail plot of open and closed issues')
+    parser.add_argument('--pull-requests-small', dest='plots', action='append',
+                        metavar='PLOT_CONFIG',
+                        type=PlotConfig.make('Pull requests', pulls=True, small=True),
+                        help='Add a thumbnail plot of open and closed pull requests')
 
-    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--formats', type=comma_seperated_list, default=['svg', 'png'],
+                        help='Write images in each of those formats')
+    parser.add_argument('--debug', action='store_true',
+                        help='Turn on debugging of the network operations')
 
-    parser.add_argument('config', is_config_file=True, nargs='+')
+    parser.add_argument('config', is_config_file=True, nargs='?',
+                        help='Read config from this file')
 
     return parser
 
@@ -105,6 +148,7 @@ def get_issues(config, group='issues'):
     return df
 
 def match_label(labels, jsonobj):
+    labels = set(labels)
     names = {l['name'] for l in jsonobj}
     return bool(labels.intersection(names))
 
@@ -126,15 +170,14 @@ def massage(issues):
 
     return opening, closing, diff
 
-def do_plot(issues, title=None, extra_labels=None, extra_label=None):
+def do_plot(plot_config, issues):
     opening, closing, diff = massage(issues)
     f = pyplot.figure()
     ax = opening.plot(label='all')
     ax.set_ylabel('cumulative closed, cumulative all')
     closing.plot(label='closed')
-    if title is not None:
-        ax.set_title(title)
-        f.canvas.set_window_title(title)
+    ax.set_title(plot_config.title)
+    f.canvas.set_window_title(plot_config.title)
     f.autofmt_xdate()
     ax.legend(loc='upper left')
 
@@ -142,59 +185,60 @@ def do_plot(issues, title=None, extra_labels=None, extra_label=None):
     ax2.set_ylabel('open', color='red')
     diff.plot(label='open', style='red')
 
-    if extra_labels is not None:
-        filtered = filter_open_issues(issues, extra_labels)
-        filtered = gb_sum(filtered, 'created_at')
-        filtered.plot(label=extra_label, style='maroon')
+    if plot_config.labels:
+        filtered = filter_open_issues(issues, plot_config.labels)
+        if filtered.size > 0:
+            filtered = gb_sum(filtered, 'created_at')
+        else:
+            filtered = diff.copy()
+            filtered[:] = 0
+        filtered.plot(label=plot_config.labels[0], style='maroon')
 
     ax2.legend(loc='lower right')
 
     return f
 
-def small_plot(issues, title=None, style=None):
+def do_small_plot(plot_config, issues):
     opening, closing, diff = massage(issues)
     f = pyplot.figure(figsize=(2,1))
-    ax = diff.plot(style=style)
+    ax = diff.plot() # style=style)
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.annotate(title, xy=(0, 1), xycoords='axes fraction', fontsize=16,
+    ax.annotate(plot_config.title,
+                xy=(0, 1), xycoords='axes fraction', fontsize=16,
                 horizontalalignment='left', verticalalignment='top')
     f.subplots_adjust(0, 0, 1, 1)
     return f
 
-def image_file(config, subj, ext):
+def image_file(config, plot_config, ext):
     prefix = config.project.replace('/', '-')
+    subj = plot_config.title.lower().replace(' ', '-')
     try:
         os.mkdir('images')
     except FileExistsError:
         pass
-    return 'images/{}-{}.{}'.format(prefix, subj, ext)
+    small = '-small' if plot_config.small else ''
+    return 'images/{}-{}{}.{}'.format(prefix, subj, small, ext)
+
+def issues_and_prs(config):
+    issues = get_issues(config, group='issues')
+    has_pr = -issues.pull_request.isnull()
+    pulls = issues[has_pr]
+    other = issues[-has_pr]
+    return other, pulls
 
 if __name__ == '__main__':
     config = parser().parse_args()
     if config.debug:
         init_logging()
 
-    issues = get_issues(config, group='issues')
-    has_pr = -issues.pull_request.isnull()
-    pulls = issues[has_pr]
-    other = issues[-has_pr]
+    issues, pulls = issues_and_prs(config)
 
-    f = do_plot(other, 'Issues',
-                extra_labels=set(config.plot1_filter),
-                extra_label=config.plot1_filter[0])
-    f2 = do_plot(pulls, 'Pull requests',
-                 extra_labels=set(config.plot2_filter),
-                 extra_label=config.plot2_filter[0])
-    f.savefig(image_file(config, 'issues', 'svg'))
-    f.savefig(image_file(config, 'issues', 'png'))
-    f2.savefig(image_file(config, 'pull-requests', 'svg'))
-    f2.savefig(image_file(config, 'pull-requests', 'png'))
-
-    f3 = small_plot(other, title='Issues', style='red')
-    f4 = small_plot(pulls, title='Pull requests', style='green')
-
-    f3.savefig(image_file(config, 'issues-small', 'svg'))
-    f3.savefig(image_file(config, 'issues-small', 'png'))
-    f4.savefig(image_file(config, 'pull-requests-small', 'svg'))
-    f4.savefig(image_file(config, 'pull-requests-small', 'png'))
+    for plot_config in config.plots:
+        items = pulls if plot_config.pulls else issues
+        if plot_config.small:
+            f = do_small_plot(plot_config, items)
+        else:
+            f = do_plot(plot_config, items)
+        for extension in config.formats:
+            f.savefig(image_file(config, plot_config, extension))

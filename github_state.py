@@ -8,7 +8,7 @@ import pandas as pd
 import logging
 import os.path
 import json
-import argparse
+import configargparse
 import collections
 
 try:
@@ -29,19 +29,21 @@ def comma_seperated_list(arg):
     return arg.split(',')
 
 def parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--config', default='config.json')
-    parser.add_argument('--project')
-    parser.add_argument('--auth', type=colon_seperated_pair)
+    parser = configargparse.ArgParser()
+    parser.add_argument('--project', required=True)
+    parser.add_argument('--auth', type=colon_seperated_pair, required=True)
     parser.add_argument('--cache-time', type=float, default=60*60)
 
     parser.add_argument('--plot1-filter', type=comma_seperated_list)
     parser.add_argument('--plot2-filter', type=comma_seperated_list)
 
+    parser.add_argument('--debug', action='store_true')
+
+    parser.add_argument('config', is_config_file=True, nargs='+')
+
     return parser
 
-# You must initialize logging, otherwise you'll not see debug output.
+# You can initialize logging to see debug output
 def init_logging():
     http_client.HTTPConnection.debuglevel = 1
 

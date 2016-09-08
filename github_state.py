@@ -11,11 +11,7 @@ import json
 import configargparse
 import collections
 
-try:
-    import http.client as http_client
-except ImportError:
-    # Python 2
-    import httplib as http_client
+import http.client as http_client
 
 Auth = collections.namedtuple('Auth', 'user auth')
 def colon_seperated_pair(arg):

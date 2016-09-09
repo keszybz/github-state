@@ -3,10 +3,10 @@ A script to pull the list of issues from github and generate plots with statisti
 
 ### Example invocation
 ```
-python3 github_state.py --project matplotlib/matplotlib \
-     --auth user:hexadecimal-auth-token \
-     --plot1-filter=needs-reporter-feedback \
-     --plot2-filter=postponed,reviewed/needs-rework,needs-reporter-feedback
+python3 github_state.py --project=systemd/systemd \
+     --auth=user:hexadecimal-auth-token \
+     --issues \
+     --pull-requests
 ```
 
 This will generate some plots in images/.                                           

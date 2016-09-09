@@ -56,18 +56,22 @@ def parser():
                         help='How often should the issue list be refreshed')
 
     parser.add_argument('--issues', dest='plots', action='append',
+                        nargs='?', const='Issues',
                         metavar='PLOT_CONFIG',
                         type=PlotConfig.make('Issues'),
                         help='Add a plot of open and closed issues')
     parser.add_argument('--pull-requests', dest='plots', action='append',
+                        nargs='?', const='Pull requests',
                         metavar='PLOT_CONFIG',
                         type=PlotConfig.make('Pull requests', pulls=True),
                         help='Add a plot of open and closed pull requests')
     parser.add_argument('--issues-small', dest='plots', action='append',
+                        nargs='?', const='Issues',
                         metavar='PLOT_CONFIG',
                         type=PlotConfig.make('Issues', small=True),
                         help='Add a thumbnail plot of open and closed issues')
     parser.add_argument('--pull-requests-small', dest='plots', action='append',
+                        nargs='?', const='Pull requests',
                         metavar='PLOT_CONFIG',
                         type=PlotConfig.make('Pull requests', pulls=True, small=True),
                         help='Add a thumbnail plot of open and closed pull requests')
@@ -207,15 +211,22 @@ def do_small_plot(plot_config, issues):
     f.subplots_adjust(0, 0, 1, 1)
     return f
 
-def image_file(config, plot_config, ext):
+def image_filename(config, plot_config, ext):
     prefix = config.project.replace('/', '-')
     subj = plot_config.title.lower().replace(' ', '-')
+    small = '-small' if plot_config.small else ''
+    return 'images/{}-{}{}.{}'.format(prefix, subj, small, ext)
+
+def savefig(config, plot_config, figure):
     try:
         os.mkdir('images')
     except FileExistsError:
         pass
-    small = '-small' if plot_config.small else ''
-    return 'images/{}-{}{}.{}'.format(prefix, subj, small, ext)
+    for extension in config.formats:
+        fname = image_filename(config, plot_config, extension)
+        figure.savefig(fname)
+        if config.debug:
+            print('Saved {}'.format(fname))
 
 def issues_and_prs(config):
     issues = get_issues(config, group='issues')
@@ -237,5 +248,4 @@ if __name__ == '__main__':
             f = do_small_plot(plot_config, items)
         else:
             f = do_plot(plot_config, items)
-        for extension in config.formats:
-            f.savefig(image_file(config, plot_config, extension))
+        savefig(config, plot_config, f)

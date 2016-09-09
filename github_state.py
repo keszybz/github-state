@@ -105,6 +105,7 @@ def get_entries(config, url, max_pages=100, **params):
         r = requests.get(url,
                          params=params,
                          auth=config.auth)
+        r.raise_for_status()
         json = r.json()
         print('got {}, {} items'.format(url, len(json)))
         if not json:

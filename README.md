@@ -9,8 +9,8 @@ python3 github_state.py --project=systemd/systemd \
      --pull-requests
 ```
 
-This will generate some plots in images/.                                           
-The module can also be imported interactively.                                      
+This will generate some plots in images/.
+The module can also be imported interactively.
 
 <img src="doc/images/systemd-systemd-issues.png" width="50%" />
 <img src="doc/images/systemd-systemd-pull-requests.png" width="50%" />

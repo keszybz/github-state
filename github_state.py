@@ -175,10 +175,9 @@ def match_label(labels, jsonobj):
     names = {l['name'] for l in jsonobj}
     return bool(labels.intersection(names))
 
-def filter_open_issues(issues, labels):
-    open = issues[issues.state == 'open']
-    filtered = open[[match_label(labels, jsonobj)
-                     for jsonobj in open['labels']]]
+def filter_issues(issues, labels):
+    filtered = issues[[match_label(labels, jsonobj)
+                       for jsonobj in issues['labels']]]
     return filtered
 
 def gb_sum(issues, attr):
@@ -205,10 +204,10 @@ def do_label_plot(plot_config, issues):
     series = collections.OrderedDict(_base=base)
 
     for label in plot_config.labels:
-        filtered = filter_open_issues(issues, [label])
+        filtered = filter_issues(issues, [label])
         if filtered.size == 0:
             continue
-        filtered = gb_sum(filtered, 'created_at')
+        _, _, filtered = massage(filtered)
         series[label] = filtered
 
     df = pd.DataFrame(series)

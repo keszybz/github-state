@@ -82,6 +82,7 @@ def parser():
                         help='Turn on debugging of the network operations')
 
     parser.add_argument('config', is_config_file=True, nargs='?',
+                        default='project.conf',
                         help='Read config from this file')
 
     return parser

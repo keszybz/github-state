@@ -7,85 +7,103 @@ import requests
 import pandas as pd
 import logging
 import os.path
+import argparse
+import configparser
 import json
-import configargparse
 import collections
 
 import http.client as http_client
 
 Auth = collections.namedtuple('Auth', 'user auth')
-def colon_seperated_pair(arg):
+def colon_separated_pair(arg):
     pair = arg.split(':', 1)
     if len(pair) == 1:
         return Auth(pair[0], '')
     else:
         return Auth(*pair)
 
-def comma_seperated_list(arg):
-    return arg.split(',')
+def comma_separated_list(arg):
+    ll = arg.split(',')
+    if ll == ['']:
+        return []
+    return [item.strip() for item in ll]
 
 class PlotConfig:
-    def __init__(self, string):
-        parts = string.split(':')
-        if len(parts) > 2:
-            raise ValueError('plot syntax is: [title:]issue[,issue...]')
+    def __init__(self, type, title, labels, small=False):
+        assert type in {'pulls', 'issues'}
+        self.type = type
+        self.title = title
+        self.labels = labels
+        self.small = small
 
-        if len(parts) > 1:
-            self.title = parts[0]
-            self.labels = comma_seperated_list(parts[1])
-        else:
-            self.labels = comma_seperated_list(parts[0])
-
-    @classmethod
-    def make(cls, default_title, *, pulls=False, small=False):
-        _pulls = pulls
-        _small = small
-        class TitledPlot(cls):
-            title = default_title
-            pulls = _pulls
-            small = _small
-        return TitledPlot
-
+    def __str__(self):
+        return '{} plot \"{}\" [{}]{}'.format(self.type,
+                                              self.title,
+                                              ','.join(self.labels),
+                                              ' small' if self.small else '')
 def parser():
-    parser = configargparse.ArgParser()
-    parser.add_argument('--project', required=True,
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--project',
                         help='GitHub project, specified as USER/REPO')
-    parser.add_argument('--auth', type=colon_seperated_pair, required=True,
+    parser.add_argument('--auth', type=colon_separated_pair,
                         help='GitHub API token, specified as user/digits')
     parser.add_argument('--cache-time', type=float, default=60*60,
                         help='How often should the issue list be refreshed')
-
-    parser.add_argument('--issues', dest='plots', action='append',
-                        nargs='?', const='Issues',
-                        metavar='PLOT_CONFIG',
-                        type=PlotConfig.make('Issues'),
-                        help='Add a plot of open and closed issues')
-    parser.add_argument('--pull-requests', dest='plots', action='append',
-                        nargs='?', const='Pull requests',
-                        metavar='PLOT_CONFIG',
-                        type=PlotConfig.make('Pull requests', pulls=True),
-                        help='Add a plot of open and closed pull requests')
-    parser.add_argument('--issues-small', dest='plots', action='append',
-                        nargs='?', const='Issues',
-                        metavar='PLOT_CONFIG',
-                        type=PlotConfig.make('Issues', small=True),
-                        help='Add a thumbnail plot of open and closed issues')
-    parser.add_argument('--pull-requests-small', dest='plots', action='append',
-                        nargs='?', const='Pull requests',
-                        metavar='PLOT_CONFIG',
-                        type=PlotConfig.make('Pull requests', pulls=True, small=True),
-                        help='Add a thumbnail plot of open and closed pull requests')
-
-    parser.add_argument('--formats', type=comma_seperated_list, default=['svg', 'png'],
+    parser.add_argument('--formats', type=comma_separated_list, default=['svg', 'png'],
                         help='Write images in each of those formats')
     parser.add_argument('--debug', action='store_true',
                         help='Turn on debugging of the network operations')
-
-    parser.add_argument('config', is_config_file=True, nargs='?',
-                        default='project.conf',
-                        help='Read config from this file')
-
+    parser.add_argument('dir',
+                        help='Operate on this directory')
     return parser
+
+def update_config_entry(args, config, args_name, section, config_name, type=str):
+    if getattr(args, args_name) is not None:
+        return
+    try:
+        val = config[section][config_name]
+    except Exception:
+        return
+    setattr(args, args_name, type(val))
+
+def update_config(args, conffile):
+    config = configparser.ConfigParser()
+    foo = config.read(conffile)
+    if not foo:
+        raise ValueError('Unable to read config file "{}"'.format(conffile))
+    update_config_entry(args, config, 'project', 'project', 'project')
+    update_config_entry(args, config, 'auth', 'project', 'auth', colon_separated_pair)
+
+    if args.project is None:
+        raise ValueError('project must be specified')
+    if args.auth is None:
+        raise ValueError('auth must be specified')
+
+    args.plots = []
+
+    # each section, except 'project', is a plot
+    for secname, section in config.items():
+        if secname in {'project', 'DEFAULT'}:
+            continue
+
+        type = section.get('type') or None
+        if type is None:
+            if 'issue' in secname.lower():
+                type = 'issues'
+            elif 'pull' in secname.lower():
+                type = 'pulls'
+            else:
+                raise ValueError('need to specify type= in section [{}]'.format(secname))
+
+        labels = section.get('labels') or ''
+        labels = comma_separated_list(labels)
+
+        small = section.get('small')
+        small = small == '1'
+
+        args.plots.append(PlotConfig(type, secname, labels=labels))
+        if small:
+            args.plots.append(PlotConfig(type, secname, labels=labels, small=True))
 
 # You can initialize logging to see debug output
 def init_logging():
@@ -124,7 +142,9 @@ def get_frames(config, url, **params):
     return total
 
 def get_issues_json(config, group):
-    fname = config.project.replace('/', '_') + '_' + group + '.json'
+    print(config)
+    fname = os.path.join(config.dir,
+                         config.project.replace('/', '_') + '_' + group + '.json')
     try:
         ts = os.path.getmtime(fname)
         if ts + config.cache_time >= time.time():
@@ -213,18 +233,15 @@ def do_small_plot(plot_config, issues):
     return f
 
 def image_filename(config, plot_config, ext):
-    prefix = config.project.replace('/', '-')
+    prefix = os.path.join(config.dir, 'images', config.project.replace('/', '-'))
     subj = plot_config.title.lower().replace(' ', '-')
     small = '-small' if plot_config.small else ''
-    return 'images/{}-{}{}.{}'.format(prefix, subj, small, ext)
+    return '{}-{}{}.{}'.format(prefix, subj, small, ext)
 
 def savefig(config, plot_config, figure):
-    try:
-        os.mkdir('images')
-    except FileExistsError:
-        pass
     for extension in config.formats:
         fname = image_filename(config, plot_config, extension)
+        os.makedirs(os.path.basename(fname), exist_ok=True)
         figure.savefig(fname)
         if config.debug:
             print('Saved {}'.format(fname))
@@ -237,16 +254,21 @@ def issues_and_prs(config):
     return other, pulls
 
 if __name__ == '__main__':
-    config = parser().parse_args()
-    if config.debug:
+    args = parser().parse_args()
+    if args.debug:
         init_logging()
 
-    issues, pulls = issues_and_prs(config)
+    update_config(args, os.path.join(args.dir, 'project.conf'))
 
-    for plot_config in config.plots:
-        items = pulls if plot_config.pulls else issues
-        if plot_config.small:
-            f = do_small_plot(plot_config, items)
+    issues, pulls = issues_and_prs(args)
+
+    for plot in args.plots:
+        if args.debug:
+            print(str(plot))
+
+        items = pulls if plot.type == 'pulls' else issues
+        if plot.small:
+            f = do_small_plot(plot, items)
         else:
-            f = do_plot(plot_config, items)
-        savefig(config, plot_config, f)
+            f = do_plot(plot, items)
+        savefig(args, plot, f)

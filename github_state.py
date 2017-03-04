@@ -214,12 +214,14 @@ def do_label_plot(plot_config, issues):
     df.fillna(method='ffill', inplace=True)
     df.fillna(0, inplace=True)
 
-    for label in df.columns:
+    colors = ('blue', 'magenta', 'yellow', 'green', 'cyan')
+    for label, color in zip(df.columns, colors):
         if label == '_base':
             continue
         top = base + df[label]
         ax.fill_between(base.index.values, base.values, top.values,
-                        label='label:' + label)
+                        label='label:' + label,
+                        color=color)
         base = top
 
     # diff.plot() messes up the order

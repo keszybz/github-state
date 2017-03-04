@@ -5,6 +5,7 @@ from __future__ import print_function, division
 import time
 import requests
 import pandas as pd
+import numpy as np
 import logging
 import os.path
 import argparse
@@ -13,6 +14,13 @@ import json
 import collections
 
 import http.client as http_client
+
+import matplotlib
+if __name__ == '__main__':
+    matplotlib.use('Agg')
+from matplotlib import pyplot
+matplotlib.style.use('ggplot')
+
 
 Auth = collections.namedtuple('Auth', 'user auth')
 def colon_separated_pair(arg):
@@ -115,12 +123,6 @@ def init_logging():
     requests_log.setLevel(logging.DEBUG)
     requests_log.propagate = True
 
-import matplotlib
-if __name__ == '__main__':
-    matplotlib.use('Agg')
-from matplotlib import pyplot
-matplotlib.style.use('ggplot')
-
 def get_entries(config, url, max_pages=100, **params):
     params['per_page'] = 100
     for page in range(1, max_pages + 1): # for safety
@@ -142,7 +144,6 @@ def get_frames(config, url, **params):
     return total
 
 def get_issues_json(config, group):
-    print(config)
     fname = os.path.join(config.dir,
                          config.project.replace('/', '_') + '_' + group + '.json')
     try:
@@ -192,9 +193,52 @@ def massage(issues):
 
     return opening, closing, diff
 
-def do_plot(plot_config, issues):
-    opening, closing, diff = massage(issues)
+def do_label_plot(plot_config, issues):
     f = pyplot.figure()
+    f.canvas.set_window_title(plot_config.title)
+    ax = f.gca()
+    ax.set_title(plot_config.title)
+
+    opening, closing, diff = massage(issues)
+
+    base = diff * 0
+    series = collections.OrderedDict(_base=base)
+
+    for label in plot_config.labels:
+        filtered = filter_open_issues(issues, [label])
+        if filtered.size == 0:
+            continue
+        filtered = gb_sum(filtered, 'created_at')
+        series[label] = filtered
+
+    df = pd.DataFrame(series)
+    df.fillna(method='ffill', inplace=True)
+    df.fillna(0, inplace=True)
+
+    for label in df.columns:
+        if label == '_base':
+            continue
+        top = base + df[label]
+        ax.fill_between(base.index.values, base.values, top.values,
+                        label='label:' + label)
+        base = top
+
+    # diff.plot() messes up the order
+    ax.plot(diff.index.values, diff.values, label='open', color='red')
+    ax.set_xlim(diff.index.values.min(), diff.index.values.max())
+    ax.set_ylim(-1)
+
+    ax.legend(loc='upper left')
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[:1] + handles[:0:-1], labels[:1] + labels[:0:-1])
+
+    f.autofmt_xdate()
+    f.tight_layout()
+    return f
+
+def do_plot(plot_config, issues):
+    f = pyplot.figure()
+    opening, closing, diff = massage(issues)
     ax = opening.plot(label='all')
     ax.set_ylabel('cumulative closed, cumulative all')
     closing.plot(label='closed')
@@ -206,16 +250,6 @@ def do_plot(plot_config, issues):
     ax2 = ax.twinx()
     ax2.set_ylabel('open', color='red')
     diff.plot(label='open', style='red')
-
-    if plot_config.labels:
-        filtered = filter_open_issues(issues, plot_config.labels)
-        if filtered.size > 0:
-            filtered = gb_sum(filtered, 'created_at')
-        else:
-            filtered = diff.copy()
-            filtered[:] = 0
-        filtered.plot(label=plot_config.labels[0], style='maroon')
-
     ax2.legend(loc='lower right')
 
     return f
@@ -269,6 +303,8 @@ if __name__ == '__main__':
         items = pulls if plot.type == 'pulls' else issues
         if plot.small:
             f = do_small_plot(plot, items)
+        elif plot.labels:
+            f = do_label_plot(plot, items)
         else:
             f = do_plot(plot, items)
         savefig(args, plot, f)

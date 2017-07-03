@@ -188,7 +188,7 @@ def massage(issues):
     closing = gb_sum(issues, 'closed_at')
     opening = gb_sum(issues, 'created_at')
     diff = opening - closing
-    diff.fillna(method='pad', inplace=1)
+    diff.fillna(method='pad', inplace=True)
 
     return opening, closing, diff
 
